@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MathMaster Studio</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Babel for JSX/TSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- MathJS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.0/math.js"></script>
+    
+    <style>
+      ::-webkit-scrollbar { width: 8px; }
+      ::-webkit-scrollbar-track { background: #f1f5f9; }
+      ::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+      .calc-btn:active { transform: scale(0.95); }
+      .fade-in { animation: fadeIn 0.3s ease-in; }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+    
+    <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom": "https://esm.sh/react-dom@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "recharts": "https://esm.sh/recharts@2.12.3?external=react,react-dom",
+    "lucide-react": "https://esm.sh/lucide-react@0.358.0?external=react",
+    "react/": "https://esm.sh/react@^19.2.3/"
+  }
+}
+</script>
+  </head>
+  <body class="bg-slate-50 text-slate-900 font-sans antialiased">
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module" data-presets="react,typescript">
+      import React, { useState, useEffect, useMemo } from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
+      import { 
+        Calculator, LayoutDashboard, LineChart as GraphIcon, 
+        Menu, X, Triangle, Divide, ArrowRight, Delete, 
+        Calculator as CalcIcon, Scale, Ruler, BarChart3, 
+        Sigma, FunctionSquare, Shapes, ArrowRightLeft, 
+        Box, Circle, Square
+      } from 'lucide-react';
+
+      const math = window.math;
+
+      // --- UTILS ---
+      const evaluateFunction = (expression, x) => {
+        try {
+          if (!expression) return null;
+          const scope = { x: x };
+          return math.evaluate(expression, scope);
+        } catch (e) {
+          return null;
+        }
+      };
+
+      const generateGraphData = (expression, xMin, xMax, points = 100) => {
+        const data = [];
+        const step = (xMax - xMin) / points;
+        for (let i = 0; i <= points; i++) {
+          const x = xMin + i * step;
+          const cleanX = parseFloat(x.toFixed(2)); 
+          const y = evaluateFunction(expression, x);
+          if (typeof y === 'number' && isFinite(y)) {
+             data.push({ x: cleanX, y: y });
+          } else {
+             data.push({ x: cleanX, y: null });
+          }
+        }
+        return data;
+      };
+
+      // --- COMPONENTS ---
+
+      // 1. Scientific Calculator
+      const ScientificCalculator = () => {
+        const [display, setDisplay] = useState('0');
+        const [history, setHistory] = useState('');
+        const [result, setResult] = useState(null);
+
+        const handlePress = (val) => {
+          if (result !== null) {
+            setDisplay(val);
+            setResult(null);
+            setHistory('');
+          } else {
+            setDisplay(prev => prev === '0' ? val : prev + val);
+          }
+        };
+
+        const handleClear = () => {
+          setDisplay('0');
+          setHistory('');
+          setResult(null);
+        };
+
+        const handleDelete = () => {
+          if (result !== null) {
+             handleClear();
+             return;
+          }
+          setDisplay(prev => prev.length > 1 ? prev.slice(0, -1) : '0');
+        };
+
+        const handleCalculate = () => {
+          try {
+            const res = math.evaluate(display);
+            let formattedRes = math.format(res, { precision: 14 });
+            if (typeof res === 'number' && !Number.isInteger(res)) {
+               try {
+                 const frac = math.fraction(res);
+                 formattedRes = `${formattedRes}  ( ${frac.n}/${frac.d} )`;
+               } catch(e) {}
+            }
+            setHistory(display + ' =');
+            setDisplay(String(formattedRes));
+            setResult(String(formattedRes));
+          } catch (e) {
+            setDisplay('Fehler');
+            setResult('Fehler');
+          }
+        };
+
+        const buttons = [
+          { label: 'C', type: 'fn', action: handleClear },
+          { label: '(', type: 'fn', action: () => handlePress('(') },
+          { label: ')', type: 'fn', action: () => handlePress(')') },
+          { label: '÷', val: '/', type: 'op' },
+          { label: 'sin', val: 'sin(', type: 'fn' },
+          { label: 'cos', val: 'cos(', type: 'fn' },
+          { label: 'tan', val: 'tan(', type: 'fn' },
+          { label: '×', val: '*', type: 'op' },
+          { label: '7', type: 'num' },
+          { label: '8', type: 'num' },
+          { label: '9', type: 'num' },
+          { label: '-', val: '-', type: 'op' },
+          { label: '4', type: 'num' },
+          { label: '5', type: 'num' },
+          { label: '6', type: 'num' },
+          { label: '+', val: '+', type: 'op' },
+          { label: '1', type: 'num' },
+          { label: '2', type: 'num' },
+          { label: '3', type: 'num' },
+          { label: '√', val: 'sqrt(', type: 'fn' },
+          { label: '0', type: 'num', wide: true },
+          { label: '.', type: 'num' },
+          { label: '^', val: '^', type: 'fn' },
+          { label: '=', type: 'eq', action: handleCalculate },
+        ];
+
+        return (
+          <div className="bg-slate-900 p-6 rounded-2xl shadow-xl max-w-md mx-auto border border-slate-700">
+            <div className="mb-4 bg-slate-800 p-4 rounded-xl text-right min-h-[100px] flex flex-col justify-end">
+              <div className="text-slate-400 text-sm h-6 overflow-hidden">{history}</div>
+              <div className="text-white text-3xl font-mono break-all">{display}</div>
+            </div>
+            <div className="grid grid-cols-4 gap-3">
+              {buttons.map((btn, idx) => (
+                <button
+                  key={idx}
+                  onClick={btn.action ? btn.action : () => handlePress(btn.val || btn.label)}
+                  className={`
+                    calc-btn h-14 rounded-lg font-semibold text-lg flex items-center justify-center
+                    ${btn.wide ? 'col-span-2' : ''}
+                    ${btn.type === 'num' ? 'bg-slate-700 text-white hover:bg-slate-600' : ''}
+                    ${btn.type === 'op' ? 'bg-amber-500 text-white hover:bg-amber-400' : ''}
+                    ${btn.type === 'fn' ? 'bg-slate-600 text-slate-200 hover:bg-slate-500 text-base' : ''}
+                    ${btn.type === 'eq' ? 'bg-indigo-600 text-white hover:bg-indigo-500' : ''}
+                  `}
+                >
+                  {btn.label}
+                </button>
+              ))}
+              <button onClick={handleDelete} className="bg-red-500/20 text-red-500 hover:bg-red-500/30 h-14 rounded-lg flex items-center justify-center col-span-4 mt-2">
+                <Delete size={20} />
+              </button>
+            </div>
+          </div>
+        );
+      };
+
+      // 2. Graphing Calculator
+      const GraphingCalculator = () => {
+        const [formula, setFormula] = useState('x^2');
+        const [data, setData] = useState([]);
+        const [xRange, setXRange] = useState({ min: -10, max: 10 });
+        const [a, setA] = useState(1);
+        const [b, setB] = useState(0);
+        const [c, setC] = useState(0);
+        const [mode, setMode] = useState('quadratic');
+
+        useEffect(() => {
+          if (mode === 'quadratic') {
+            const termA = a !== 0 ? `${a}x^2` : '';
+            const termB = b !== 0 ? `${b > 0 && termA ? '+' : ''}${b}x` : '';
+            const termC = c !== 0 ? `${c > 0 && (termA || termB) ? '+' : ''}${c}` : '';
+            let newFormula = `${termA}${termB}${termC}` || '0';
+            newFormula = newFormula.replace(/\+\-/g, '-');
+            setFormula(newFormula);
+          }
+        }, [a, b, c, mode]);
+
+        useEffect(() => {
+          try {
+            const points = generateGraphData(formula, xRange.min, xRange.max, 200);
+            setData(points);
+          } catch (err) {}
+        }, [formula, xRange]);
+
+        const domain = useMemo(() => [xRange.min, xRange.max], [xRange]);
+
+        return (
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-xl shadow border border-slate-200">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-bold flex items-center gap-2"><GraphIcon className="text-indigo-600" /> Funktionsplotter</h2>
+                <div className="bg-slate-100 p-1 rounded-lg flex text-sm">
+                  <button onClick={() => setMode('quadratic')} className={`px-3 py-1 rounded ${mode === 'quadratic' ? 'bg-white shadow text-indigo-600' : ''}`}>Quadratisch</button>
+                  <button onClick={() => setMode('custom')} className={`px-3 py-1 rounded ${mode === 'custom' ? 'bg-white shadow text-indigo-600' : ''}`}>Benutzerdefiniert</button>
+                </div>
+              </div>
+
+              <div className="grid md:grid-cols-12 gap-8">
+                <div className="md:col-span-4 space-y-6">
+                  {mode === 'quadratic' ? (
+                    <div className="bg-slate-50 p-4 rounded-lg space-y-3">
+                      <p className="text-xs font-bold text-slate-500 uppercase">Koeffizienten</p>
+                      {['a', 'b', 'c'].map(v => (
+                        <div key={v}>
+                          <div className="flex justify-between text-sm mb-1"><span>{v}</span><span className="font-mono">{v==='a'?a:v==='b'?b:c}</span></div>
+                          <input type="range" min="-10" max="10" step="0.5" value={v==='a'?a:v==='b'?b:c} onChange={e => {
+                            const val = parseFloat(e.target.value);
+                            if(v==='a') setA(val); if(v==='b') setB(val); if(v==='c') setC(val);
+                          }} className="w-full accent-indigo-600"/>
+                        </div>
+                      ))}
+                      <div className="text-center font-mono text-indigo-900 bg-indigo-50 p-2 rounded text-sm">f(x) = {formula}</div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <label className="text-sm font-bold">Funktion f(x) =</label>
+                      <input type="text" value={formula} onChange={e => setFormula(e.target.value)} className="w-full p-2 border rounded font-mono" />
+                      <p className="text-xs text-slate-500">Bsp: <code>sin(x)</code>, <code>x^3</code></p>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><label className="text-xs">X Min</label><input type="number" value={xRange.min} onChange={e => setXRange({...xRange, min: parseFloat(e.target.value)})} className="w-full p-1 border rounded"/></div>
+                    <div><label className="text-xs">X Max</label><input type="number" value={xRange.max} onChange={e => setXRange({...xRange, max: parseFloat(e.target.value)})} className="w-full p-1 border rounded"/></div>
+                  </div>
+                </div>
+
+                <div className="md:col-span-8 h-[400px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="x" type="number" domain={domain} allowDataOverflow />
+                      <YAxis width={30} />
+                      <Tooltip labelFormatter={v => `x: ${v}`} />
+                      <ReferenceLine y={0} stroke="#94a3b8" />
+                      <ReferenceLine x={0} stroke="#94a3b8" />
+                      <Line type="monotone" dataKey="y" stroke="#4f46e5" strokeWidth={3} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      // --- NEW TOOL COMPONENTS ---
+
+      // 3. Unit Converter
+      const UnitConverter = () => {
+        const [amount, setAmount] = useState(1);
+        const [category, setCategory] = useState('länge');
+        const [from, setFrom] = useState('m');
+        const [to, setTo] = useState('ft');
+        const [result, setResult] = useState('');
+
+        const categories = {
+          länge: ['m', 'cm', 'mm', 'km', 'ft', 'in', 'mi', 'yd'],
+          masse: ['kg', 'g', 'mg', 'lb', 'oz'],
+          temperatur: ['degC', 'degF', 'K'],
+          volumen: ['liter', 'ml', 'gallon', 'cup']
+        };
+
+        useEffect(() => {
+          setFrom(categories[category][0]);
+          setTo(categories[category][1] || categories[category][0]);
+        }, [category]);
+
+        useEffect(() => {
+          try {
+            if(category === 'temperatur') {
+               const res = math.unit(amount, from).to(to);
+               setResult(`${res.toNumber().toFixed(2)} ${to}`);
+            } else {
+               const res = math.evaluate(`${amount} ${from} to ${to}`);
+               setResult(`${res.toNumber().toFixed(4)} ${to}`);
+            }
+          } catch(e) { setResult('...'); }
+        }, [amount, from, to, category]);
+
+        return (
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-full">
+            <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-indigo-600"><Ruler size={20}/> Einheitenumrechner</h3>
+            <div className="space-y-4">
+              <div className="flex gap-2 bg-slate-100 p-1 rounded-lg mb-2 overflow-x-auto">
+                {Object.keys(categories).map(cat => (
+                  <button key={cat} onClick={() => setCategory(cat)} className={`px-3 py-1 rounded capitalize text-sm whitespace-nowrap ${category === cat ? 'bg-white shadow text-indigo-600 font-medium' : 'text-slate-500'}`}>{cat}</button>
+                ))}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                <div><label className="text-xs text-slate-500">Wert</label><input type="number" value={amount} onChange={e => setAmount(e.target.value)} className="w-full p-2 border rounded font-mono" /></div>
+                <div><label className="text-xs text-slate-500">Von</label><select value={from} onChange={e => setFrom(e.target.value)} className="w-full p-2 border rounded bg-slate-50">{categories[category].map(u => <option key={u} value={u}>{u}</option>)}</select></div>
+                <div><label className="text-xs text-slate-500">Nach</label><select value={to} onChange={e => setTo(e.target.value)} className="w-full p-2 border rounded bg-slate-50">{categories[category].map(u => <option key={u} value={u}>{u}</option>)}</select></div>
+              </div>
+              <div className="bg-indigo-50 p-4 rounded-lg text-center"><span className="text-indigo-900 font-mono text-xl font-bold">{result}</span></div>
+            </div>
+          </div>
+        );
+      };
+
+      // 4. Statistics
+      const StatsCalculator = () => {
+        const [input, setInput] = useState("1, 2, 3, 4, 5");
+        const [stats, setStats] = useState(null);
+
+        useEffect(() => {
+          try {
+            const arr = input.split(/[\s,]+/).map(n => parseFloat(n)).filter(n => !isNaN(n));
+            if (arr.length > 0) {
+              setStats({
+                mittelwert: math.mean(arr),
+                median: math.median(arr),
+                min: math.min(arr),
+                max: math.max(arr),
+                std_abw: math.std(arr),
+                summe: math.sum(arr),
+                anzahl: arr.length
+              });
+            } else { setStats(null); }
+          } catch (e) { setStats(null); }
+        }, [input]);
+
+        return (
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-full">
+            <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-emerald-600"><BarChart3 size={20}/> Statistik</h3>
+            <div className="space-y-4">
+              <div><label className="text-xs text-slate-500">Datensatz (getrennt durch Komma/Leerzeichen)</label><textarea value={input} onChange={e => setInput(e.target.value)} className="w-full p-2 border rounded font-mono text-sm h-24 resize-none" placeholder="1 2 3..." /></div>
+              {stats && (
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  {Object.keys(stats).map(k => (
+                    <div key={k} className="bg-slate-50 p-2 rounded flex justify-between capitalize"><span>{k.replace('_', '. ')}</span> <span className="font-mono font-bold">{stats[k].toFixed(2)}</span></div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      };
+
+      // 5. Algebra Tools
+      const AlgebraTools = () => {
+        const [qa, setQa] = useState(1);
+        const [qb, setQb] = useState(-3);
+        const [qc, setQc] = useState(2);
+        const [primeInput, setPrimeInput] = useState(12);
+
+        const roots = useMemo(() => {
+           const d = qb*qb - 4*qa*qc;
+           if (d > 0) return `x₁ = ${((-qb + Math.sqrt(d))/(2*qa)).toFixed(2)}, x₂ = ${((-qb - Math.sqrt(d))/(2*qa)).toFixed(2)}`;
+           if (d === 0) return `x = ${(-qb/(2*qa)).toFixed(2)}`;
+           return `Komplex: ${(-qb/(2*qa)).toFixed(2)} ± ${(Math.sqrt(-d)/(2*qa)).toFixed(2)}i`;
+        }, [qa, qb, qc]);
+
+        const factors = useMemo(() => {
+           if(primeInput < 2) return "N/A";
+           let n = primeInput; const f = []; let d = 2;
+           while (d * d <= n) { while (n % d === 0) { f.push(d); n /= d; } d++; }
+           if (n > 1) f.push(n);
+           return f.join(' × ');
+        }, [primeInput]);
+
+        return (
+           <div className="space-y-6">
+              <div className="bg-white p-6 rounded-xl border shadow-sm">
+                 <h3 className="font-bold text-lg mb-4 text-purple-600 flex items-center gap-2"><FunctionSquare size={20}/> Quadratische Lösungsformel</h3>
+                 <div className="flex gap-2 items-center justify-center mb-4">
+                    <input type="number" value={qa} onChange={e=>setQa(parseFloat(e.target.value)||1)} className="w-16 p-2 border rounded text-center"/> <span className="font-serif italic">x² +</span>
+                    <input type="number" value={qb} onChange={e=>setQb(parseFloat(e.target.value)||0)} className="w-16 p-2 border rounded text-center"/> <span className="font-serif italic">x +</span>
+                    <input type="number" value={qc} onChange={e=>setQc(parseFloat(e.target.value)||0)} className="w-16 p-2 border rounded text-center"/> <span className="font-serif italic">= 0</span>
+                 </div>
+                 <div className="bg-purple-50 p-3 rounded text-center font-bold text-purple-900">{roots}</div>
+              </div>
+              <div className="bg-white p-6 rounded-xl border shadow-sm">
+                 <h3 className="font-bold text-lg mb-4 text-purple-600 flex items-center gap-2"><Divide size={20}/> Primfaktorzerlegung</h3>
+                 <div className="flex gap-4 items-center">
+                    <input type="number" value={primeInput} onChange={e=>setPrimeInput(parseInt(e.target.value))} className="w-24 p-2 border rounded text-center"/>
+                    <ArrowRight className="text-slate-400"/>
+                    <span className="font-mono text-xl font-bold">{factors}</span>
+                 </div>
+              </div>
+           </div>
+        );
+      };
+
+      // 6. Geometry Tools
+      const GeometryTools = () => {
+         const [shape, setShape] = useState('kreis');
+         const [vals, setVals] = useState({ r: 5, w: 10, h: 5, a: 3, b: 4, c: 5 });
+         
+         const results = useMemo(() => {
+            if(shape === 'kreis') return { Fläche: Math.PI*vals.r*vals.r, Umfang: 2*Math.PI*vals.r };
+            if(shape === 'rechteck') return { Fläche: vals.w*vals.h, Umfang: 2*(vals.w+vals.h) };
+            if(shape === 'dreieck') {
+               const s = (vals.a+vals.b+vals.c)/2;
+               const area = Math.sqrt(s*(s-vals.a)*(s-vals.b)*(s-vals.c)) || 0;
+               return { Fläche: area, Umfang: vals.a+vals.b+vals.c };
+            }
+            return { Fläche: 0, Umfang: 0 };
+         }, [shape, vals]);
+
+         return (
+            <div className="bg-white p-6 rounded-xl border shadow-sm h-full">
+               <h3 className="font-bold text-lg mb-4 text-orange-600 flex items-center gap-2"><Shapes size={20}/> Geometrie</h3>
+               <div className="flex gap-2 bg-slate-100 p-1 rounded-lg mb-4">
+                  <button onClick={()=>setShape('kreis')} className={`flex-1 py-1 rounded text-sm ${shape==='kreis'?'bg-white shadow text-orange-600':''}`}>Kreis</button>
+                  <button onClick={()=>setShape('rechteck')} className={`flex-1 py-1 rounded text-sm ${shape==='rechteck'?'bg-white shadow text-orange-600':''}`}>Rechteck</button>
+                  <button onClick={()=>setShape('dreieck')} className={`flex-1 py-1 rounded text-sm ${shape==='dreieck'?'bg-white shadow text-orange-600':''}`}>Dreieck</button>
+               </div>
+               <div className="grid grid-cols-3 gap-2 mb-4">
+                  {shape==='kreis' && <div><label className="text-xs">Radius</label><input type="number" value={vals.r} onChange={e=>setVals({...vals,r:parseFloat(e.target.value)})} className="w-full p-2 border rounded"/></div>}
+                  {shape==='rechteck' && <><div><label className="text-xs">Breite</label><input type="number" value={vals.w} onChange={e=>setVals({...vals,w:parseFloat(e.target.value)})} className="w-full p-2 border rounded"/></div><div><label className="text-xs">Höhe</label><input type="number" value={vals.h} onChange={e=>setVals({...vals,h:parseFloat(e.target.value)})} className="w-full p-2 border rounded"/></div></>}
+                  {shape==='dreieck' && <><div><label className="text-xs">Seite A</label><input type="number" value={vals.a} onChange={e=>setVals({...vals,a:parseFloat(e.target.value)})} className="w-full p-2 border rounded"/></div><div><label className="text-xs">Seite B</label><input type="number" value={vals.b} onChange={e=>setVals({...vals,b:parseFloat(e.target.value)})} className="w-full p-2 border rounded"/></div><div><label className="text-xs">Seite C</label><input type="number" value={vals.c} onChange={e=>setVals({...vals,c:parseFloat(e.target.value)})} className="w-full p-2 border rounded"/></div></>}
+               </div>
+               <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-orange-50 p-3 rounded text-center"><div className="text-xs text-orange-800 uppercase font-bold">Fläche</div><div className="font-mono font-bold text-lg">{results.Fläche.toFixed(2)}</div></div>
+                  <div className="bg-orange-50 p-3 rounded text-center"><div className="text-xs text-orange-800 uppercase font-bold">Umfang</div><div className="font-mono font-bold text-lg">{results.Umfang.toFixed(2)}</div></div>
+               </div>
+            </div>
+         );
+      };
+
+      // 7. Tools Wrapper
+      const ToolsPage = () => (
+         <div className="grid md:grid-cols-2 gap-6 animate-fade-in">
+            <UnitConverter />
+            <StatsCalculator />
+            <AlgebraTools />
+            <GeometryTools />
+         </div>
+      );
+
+      // Main App
+      const App = () => {
+        const [view, setView] = useState('HOME');
+        const [menuOpen, setMenuOpen] = useState(false);
+
+        const NavItem = ({ id, label, icon: Icon }) => (
+          <button onClick={() => { setView(id); setMenuOpen(false); }} className={`flex items-center gap-2 px-3 py-2 rounded-md transition ${view === id ? 'bg-indigo-50 text-indigo-600 font-semibold' : 'text-slate-600 hover:bg-slate-100'}`}>
+            <Icon size={18} /> {label}
+          </button>
+        );
+
+        return (
+          <div className="min-h-screen flex flex-col">
+            <header className="bg-white border-b sticky top-0 z-50 shadow-sm">
+              <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+                <div className="flex items-center gap-2 font-bold text-xl cursor-pointer text-slate-800" onClick={() => setView('HOME')}>
+                  <div className="bg-indigo-600 text-white w-8 h-8 rounded flex items-center justify-center font-serif italic">ƒ</div>
+                  MathMaster
+                </div>
+                <nav className="hidden md:flex gap-4">
+                  <NavItem id="HOME" label="Übersicht" icon={LayoutDashboard} />
+                  <NavItem id="GRAPH" label="Graphen" icon={GraphIcon} />
+                  <NavItem id="CALCULATOR" label="Rechner" icon={CalcIcon} />
+                  <NavItem id="TOOLS" label="Werkzeuge" icon={Box} />
+                </nav>
+                <button className="md:hidden p-2 text-slate-600" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X /> : <Menu />}</button>
+              </div>
+              {menuOpen && (
+                <div className="md:hidden border-t p-2 space-y-1 bg-white shadow-lg absolute w-full z-50">
+                  <NavItem id="HOME" label="Übersicht" icon={LayoutDashboard} />
+                  <NavItem id="GRAPH" label="Graphen" icon={GraphIcon} />
+                  <NavItem id="CALCULATOR" label="Rechner" icon={CalcIcon} />
+                  <NavItem id="TOOLS" label="Werkzeuge" icon={Box} />
+                </div>
+              )}
+            </header>
+
+            <main className="flex-1 max-w-7xl w-full mx-auto p-4 py-8">
+              {view === 'HOME' && (
+                <div className="space-y-12 animate-fade-in">
+                  <div className="text-center py-16 bg-gradient-to-br from-indigo-600 to-purple-700 rounded-3xl text-white shadow-xl">
+                    <h1 className="text-4xl md:text-5xl font-extrabold mb-6 tracking-tight">Mathematik Neu Gedacht</h1>
+                    <p className="text-indigo-100 max-w-2xl mx-auto mb-8 text-lg px-4">Eine Komplettlösung für Schüler und Ingenieure. Berechnen, visualisieren und analysieren Sie mit professionellen Werkzeugen.</p>
+                    <div className="flex justify-center gap-4 flex-wrap px-4">
+                      <button onClick={() => setView('GRAPH')} className="bg-white text-indigo-600 px-6 py-3 rounded-xl font-bold hover:bg-indigo-50 shadow transition">Graphen zeichnen</button>
+                      <button onClick={() => setView('TOOLS')} className="bg-indigo-500/30 border border-white/20 text-white px-6 py-3 rounded-xl font-bold hover:bg-indigo-500/40 transition">Werkzeuge öffnen</button>
+                    </div>
+                  </div>
+                  
+                  <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div onClick={() => setView('GRAPH')} className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition cursor-pointer group">
+                      <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center mb-4 group-hover:bg-indigo-600 group-hover:text-white transition"><GraphIcon size={24} /></div>
+                      <h3 className="font-bold text-lg text-slate-800">Graphen</h3>
+                      <p className="text-sm text-slate-500 mt-2">Plotten Sie Parabeln, quadratische Gleichungen und eigene Funktionen.</p>
+                    </div>
+                    <div onClick={() => setView('CALCULATOR')} className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition cursor-pointer group">
+                      <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center mb-4 group-hover:bg-amber-600 group-hover:text-white transition"><CalcIcon size={24} /></div>
+                      <h3 className="font-bold text-lg text-slate-800">Wiss. Rechner</h3>
+                      <p className="text-sm text-slate-500 mt-2">Fortgeschrittener Rechner mit Trigonometrie, Potenzen und formatiertem Output.</p>
+                    </div>
+                    <div onClick={() => setView('TOOLS')} className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition cursor-pointer group">
+                      <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center mb-4 group-hover:bg-emerald-600 group-hover:text-white transition"><BarChart3 size={24} /></div>
+                      <h3 className="font-bold text-lg text-slate-800">Statistik</h3>
+                      <p className="text-sm text-slate-500 mt-2">Datenanalyse, Standardabweichung und Durchschnittsberechnung.</p>
+                    </div>
+                    <div onClick={() => setView('TOOLS')} className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition cursor-pointer group">
+                      <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-xl flex items-center justify-center mb-4 group-hover:bg-orange-600 group-hover:text-white transition"><Shapes size={24} /></div>
+                      <h3 className="font-bold text-lg text-slate-800">Geometrie</h3>
+                      <p className="text-sm text-slate-500 mt-2">Flächen- und Umfangsberechnung für gängige geometrische Formen.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {view === 'GRAPH' && <GraphingCalculator />}
+              
+              {view === 'CALCULATOR' && (
+                <div className="space-y-8 animate-fade-in">
+                   <div className="text-center max-w-2xl mx-auto">
+                     <h2 className="text-3xl font-bold mb-2">Wissenschaftlicher Rechner</h2>
+                     <p className="text-slate-500">Unterstützt komplexe Ausdrücke. Verwenden Sie für beste Ergebnisse das Tastenfeld auf dem Bildschirm.</p>
+                   </div>
+                   <ScientificCalculator />
+                </div>
+              )}
+
+              {view === 'TOOLS' && <ToolsPage />}
+            </main>
+          </div>
+        );
+      };
+
+      const root = createRoot(document.getElementById('root'));
+      root.render(<App />);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,5 @@
+{
+  "name": "MathMaster Studio",
+  "description": "A comprehensive mathematics dashboard featuring an interactive parabolic graphing calculator, scientific calculator, and geometry solvers.",
+  "requestFramePermissions": []
+}
